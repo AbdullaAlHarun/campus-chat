@@ -1,0 +1,367 @@
+
+@page "/threads/{ThreadId:int}"
+@rendermode InteractiveServer
+@implements IDisposable
+
+@using CampusChat.Models
+@using CampusChat.Services
+@using DiscussionThread = CampusChat.Models.Thread
+
+@inject ThreadService ThreadService
+@inject PostService PostService
+@inject UnreadService UnreadService
+@inject UserStateService UserState
+@inject UserService UserService
+@inject ChangeNotifier Notifier
+
+<PageTitle>Thread Details - CampusChat</PageTitle>
+
+@if (!UserState.IsSignedIn)
+{
+    <div class="alert alert-info">
+        Please <a href="/signin">select a user</a> first.
+    </div>
+}
+else if (thread == null)
+{
+    <div class="alert alert-warning">Thread not found.</div>
+}
+else
+{
+    <a href="/threads" class="btn btn-link px-0 mb-3">
+        ← Back to Threads
+    </a>
+
+    <h2>@thread.Title</h2>
+    <p>@thread.Description</p>
+
+    <span class="badge @(thread.IsPrivate ? "bg-warning text-dark" : "bg-success")">
+        @(thread.IsPrivate ? "Private" : "Public")
+    </span>
+
+    <span class="text-muted ms-2">
+        @thread.MemberUserIds.Count member(s)
+    </span>
+
+    @if (!string.IsNullOrEmpty(errorMessage))
+    {
+        <div class="alert alert-danger mt-3">@errorMessage</div>
+    }
+
+    @if (!IsMember && !IsAuditor)
+    {
+        <div class="card mt-4">
+            <div class="card-body">
+                <h5>Join this Thread</h5>
+
+                @if (thread.IsPrivate)
+                {
+                    <p>Enter the access code to join this private discussion.</p>
+
+                    <input type="password"
+                           class="form-control mb-3"
+                           placeholder="Access code"
+                           @bind="accessCode" />
+                }
+                else
+                {
+                    <p>Join this discussion to post messages and replies.</p>
+                }
+
+                <button class="btn btn-primary" @onclick="JoinThread">
+                    Join Thread
+                </button>
+            </div>
+        </div>
+    }
+
+    @if (IsMember)
+    {
+        <button class="btn btn-outline-danger btn-sm mt-3"
+                @onclick="LeaveThread">
+            Leave Thread
+        </button>
+    }
+
+    @if (CanRead)
+    {
+        <hr class="my-4" />
+
+        <h4>Discussion</h4>
+
+        @if (posts.Count == 0)
+        {
+            <div class="alert alert-secondary">
+                No messages yet. Be the first to post!
+            </div>
+        }
+        else
+        {
+            @foreach (var post in posts)
+            {
+                <div class="card mb-3" @key="post.Id">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between">
+                            <strong>
+                                @GetAuthorName(post.AuthorUserId)
+                            </strong>
+                            <small class="text-muted">
+                                @post.CreatedAt.ToLocalTime().ToString("dd MMM yyyy HH:mm")
+                            </small>
+                        </div>
+
+                        @if (post.ParentPostId.HasValue)
+                        {
+                            <small class="text-muted">
+                                Reply to post #@post.ParentPostId
+                            </small>
+                        }
+
+                        <p class="mt-2 mb-2">@post.Content</p>
+
+                        @if (IsMember)
+                        {
+                            <button class="btn btn-outline-primary btn-sm me-2"
+                                    @onclick="() => StartReply(post.Id)">
+                                Reply
+                            </button>
+                        }
+
+                        @if (post.AuthorUserId == UserState.CurrentUserId)
+                        {
+                            <button class="btn btn-outline-danger btn-sm"
+                                    @onclick="() => DeletePost(post.Id)">
+                                Delete
+                            </button>
+                        }
+                    </div>
+                </div>
+            }
+        }
+
+        @if (IsMember)
+        {
+            <div class="card mt-4">
+                <div class="card-body">
+                    <h5>
+                        @(replyToPostId.HasValue
+                            ? $"Reply to post #{replyToPostId}"
+                            : "Write a Message")
+                    </h5>
+
+                    @if (replyToPostId.HasValue)
+                    {
+                        <button class="btn btn-link px-0"
+                                @onclick="CancelReply">
+                            Cancel reply
+                        </button>
+                    }
+
+                    <textarea class="form-control mb-3"
+                              rows="3"
+                              placeholder="Write your message..."
+                              @bind="newMessage"></textarea>
+
+                    <button class="btn btn-primary" @onclick="SendPost">
+                        Send Message
+                    </button>
+                </div>
+            </div>
+        }
+    }
+    else if (thread.IsPrivate)
+    {
+        <div class="alert alert-warning mt-4">
+            This discussion is private. Join with the correct access code
+            to read its messages.
+        </div>
+    }
+}
+
+@code {
+    [Parameter] public int ThreadId { get; set; }
+
+    private DiscussionThread? thread;
+    private List<Post> posts = new();
+
+    private string accessCode = "";
+    private string newMessage = "";
+    private string? errorMessage;
+    private int? replyToPostId;
+
+    private bool IsMember =>
+        UserState.CurrentUserId.HasValue &&
+        thread?.MemberUserIds.Contains(UserState.CurrentUserId.Value) == true;
+
+    private bool IsAuditor =>
+        UserState.CurrentUserId.HasValue &&
+        UserService.GetUserById(UserState.CurrentUserId.Value)?.IsAuditor == true;
+
+    private bool CanRead =>
+        thread != null &&
+        UserState.CurrentUserId.HasValue &&
+        (!thread.IsPrivate || IsMember || IsAuditor);
+
+    protected override void OnInitialized()
+    {
+        Notifier.OnChange += RefreshFromNotification;
+    }
+
+    protected override void OnParametersSet()
+    {
+        LoadThread();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await UserState.RestoreSessionAsync();
+            LoadThread();
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private void LoadThread()
+    {
+        thread = ThreadService.GetThreadById(ThreadId);
+        posts = new List<Post>();
+
+        if (!CanRead || !UserState.CurrentUserId.HasValue)
+            return;
+
+        try
+        {
+            int userId = UserState.CurrentUserId.Value;
+
+            posts = PostService.GetPosts(userId, ThreadId);
+
+            if (IsMember)
+                UnreadService.MarkAsRead(userId, ThreadId);
+        }
+        catch (UnauthorizedAccessException)
+        {
+            posts.Clear();
+        }
+    }
+
+    private void JoinThread()
+    {
+        try
+        {
+            errorMessage = null;
+
+            ThreadService.JoinThread(
+                UserState.CurrentUserId!.Value,
+                ThreadId,
+                accessCode);
+
+            accessCode = "";
+            LoadThread();
+        }
+        catch (Exception ex) when (
+            ex is ArgumentException ||
+            ex is UnauthorizedAccessException ||
+            ex is KeyNotFoundException)
+        {
+            errorMessage = ex.Message;
+        }
+    }
+
+    private void LeaveThread()
+    {
+        try
+        {
+            errorMessage = null;
+
+            ThreadService.LeaveThread(
+                UserState.CurrentUserId!.Value,
+                ThreadId);
+
+            posts.Clear();
+            replyToPostId = null;
+            LoadThread();
+        }
+        catch (Exception ex) when (
+            ex is UnauthorizedAccessException ||
+            ex is KeyNotFoundException)
+        {
+            errorMessage = ex.Message;
+        }
+    }
+
+    private void StartReply(int postId)
+    {
+        replyToPostId = postId;
+    }
+
+    private void CancelReply()
+    {
+        replyToPostId = null;
+    }
+
+    private void SendPost()
+    {
+        try
+        {
+            errorMessage = null;
+
+            PostService.AddPost(
+                UserState.CurrentUserId!.Value,
+                ThreadId,
+                newMessage,
+                replyToPostId);
+
+            newMessage = "";
+            replyToPostId = null;
+            LoadThread();
+        }
+        catch (Exception ex) when (
+            ex is ArgumentException ||
+            ex is UnauthorizedAccessException ||
+            ex is KeyNotFoundException)
+        {
+            errorMessage = ex.Message;
+        }
+    }
+
+    private void DeletePost(int postId)
+    {
+        try
+        {
+            errorMessage = null;
+
+            PostService.DeletePost(
+                UserState.CurrentUserId!.Value,
+                postId);
+
+            LoadThread();
+        }
+        catch (Exception ex) when (
+            ex is UnauthorizedAccessException ||
+            ex is KeyNotFoundException)
+        {
+            errorMessage = ex.Message;
+        }
+    }
+
+    private string GetAuthorName(int userId)
+    {
+        return UserService.GetUserById(userId)?.DisplayName
+            ?? "Unknown User";
+    }
+
+    private void RefreshFromNotification()
+    {
+        _ = InvokeAsync(() =>
+        {
+            LoadThread();
+            StateHasChanged();
+        });
+    }
+
+    public void Dispose()
+    {
+        Notifier.OnChange -= RefreshFromNotification;
+    }
+}
