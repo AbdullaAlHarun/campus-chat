@@ -1,0 +1,67 @@
+
+@page "/signin"
+@rendermode InteractiveServer
+@inject CampusChat.Services.UserService UserService
+@inject CampusChat.Services.UserStateService UserState
+@inject NavigationManager Navigation
+
+<PageTitle>Sign In - CampusChat</PageTitle>
+
+<h2>Welcome to CampusChat</h2>
+<p class="text-muted">Choose your profile to continue.</p>
+
+@if (!string.IsNullOrEmpty(errorMessage))
+{
+    <div class="alert alert-danger">@errorMessage</div>
+}
+
+<div class="row g-3">
+    @foreach (var user in UserService.GetUsers())
+    {
+        <div class="col-md-6 col-lg-4" @key="user.Id">
+            <div class="card h-100 shadow-sm">
+                <div class="card-body">
+                    <div class="d-flex align-items-center gap-3">
+                        <div style="width:48px;
+                                    height:48px;
+                                    border-radius:50%;
+                                    background-color:@user.AvatarColor">
+                        </div>
+
+                        <div>
+                            <h5 class="mb-1">@user.DisplayName</h5>
+                            <small class="text-muted">
+                                @(user.IsAuditor
+                                    ? "Auditor"
+                                    : $"Study Year {user.StudyYear}")
+                            </small>
+                        </div>
+                    </div>
+
+                    <button class="btn btn-primary w-100 mt-3"
+                            @onclick="() => SelectUser(user.Id)">
+                        Continue as @user.DisplayName
+                    </button>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private string? errorMessage;
+
+    private async Task SelectUser(int userId)
+    {
+        try
+        {
+            errorMessage = null;
+            await UserState.SignInAsync(userId);
+            Navigation.NavigateTo("/");
+        }
+        catch (Exception)
+        {
+            errorMessage = "Could not sign in. Please try again.";
+        }
+    }
+}
