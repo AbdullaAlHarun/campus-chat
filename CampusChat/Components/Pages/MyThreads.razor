@@ -1,0 +1,129 @@
+
+@page "/my-threads"
+@rendermode InteractiveServer
+@implements IDisposable
+
+@using CampusChat.Services
+@using DiscussionThread = CampusChat.Models.Thread
+
+@inject ThreadService ThreadService
+@inject UnreadService UnreadService
+@inject UserStateService UserState
+@inject ChangeNotifier Notifier
+
+<PageTitle>My Threads - CampusChat</PageTitle>
+
+<h2>My Threads</h2>
+<p class="text-muted">Your joined discussions and unread messages.</p>
+
+@if (!UserState.IsSignedIn)
+{
+    <div class="alert alert-info">
+        Please <a href="/signin">select a user</a> first.
+    </div>
+}
+else if (threads.Count == 0)
+{
+    <div class="alert alert-secondary">
+        You haven't joined any threads yet.
+        <a href="/threads">Explore discussions</a>.
+    </div>
+}
+else
+{
+    <div class="row g-3">
+        @foreach (var thread in threads)
+        {
+            <div class="col-md-6" @key="thread.Id">
+                <div class="card h-100 shadow-sm">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between align-items-start">
+                            <h5>@thread.Title</h5>
+
+                            @if (GetUnreadCount(thread.Id) > 0)
+                            {
+                                <span class="badge bg-danger">
+                                    @GetUnreadCount(thread.Id) unread
+                                </span>
+                            }
+                        </div>
+
+                        <span class="badge @(thread.IsPrivate
+                            ? "bg-warning text-dark"
+                            : "bg-success")">
+                            @(thread.IsPrivate ? "Private" : "Public")
+                        </span>
+
+                        <p class="mt-3">@thread.Description</p>
+
+                        <small class="text-muted">
+                            @thread.MemberUserIds.Count member(s)
+                        </small>
+
+                        <div class="mt-3">
+                            <a class="btn btn-outline-primary btn-sm"
+                               href="@($"/threads/{thread.Id}")">
+                                Open Thread
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    private List<DiscussionThread> threads = new();
+    private Dictionary<int, int> unreadCounts = new();
+
+    protected override void OnInitialized()
+    {
+        Notifier.OnChange += HandleChange;
+        UserState.OnChange += HandleChange;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await UserState.RestoreSessionAsync();
+            LoadData();
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private void LoadData()
+    {
+        threads.Clear();
+        unreadCounts.Clear();
+
+        if (!UserState.CurrentUserId.HasValue)
+            return;
+
+        int userId = UserState.CurrentUserId.Value;
+
+        threads = ThreadService.GetJoinedThreads(userId);
+        unreadCounts = UnreadService.GetUnreadCounts(userId);
+    }
+
+    private int GetUnreadCount(int threadId)
+    {
+        return unreadCounts.GetValueOrDefault(threadId);
+    }
+
+    private void HandleChange()
+    {
+        _ = InvokeAsync(() =>
+        {
+            LoadData();
+            StateHasChanged();
+        });
+    }
+
+    public void Dispose()
+    {
+        Notifier.OnChange -= HandleChange;
+        UserState.OnChange -= HandleChange;
+    }
+}
