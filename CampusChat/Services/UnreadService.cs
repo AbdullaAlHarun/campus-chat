@@ -8,9 +8,6 @@ public sealed class UnreadService
     private readonly CampusChatStore _store;
     private readonly ChangeNotifier _notifier;
 
-    /// <summary>
-    /// Creates the unread-message service.
-    /// </summary>
     public UnreadService(
         CampusChatStore store,
         ChangeNotifier notifier)
@@ -19,9 +16,7 @@ public sealed class UnreadService
         _notifier = notifier;
     }
 
-    /// <summary>
-    /// Returns the number of unread posts in a joined thread.
-    /// </summary>
+    /// <summary>Counts unread posts in a joined thread.</summary>
     public int GetUnreadCount(int userId, int threadId)
     {
         lock (_store.SyncRoot)
@@ -33,8 +28,7 @@ public sealed class UnreadService
                 return 0;
 
             _store.LastReadPostIds.TryGetValue(
-                (userId, threadId),
-                out int lastReadPostId);
+                (userId, threadId), out int lastReadPostId);
 
             return _store.Posts.Count(p =>
                 p.ThreadId == threadId &&
@@ -43,11 +37,11 @@ public sealed class UnreadService
         }
     }
 
-    /// <summary>
-    /// Marks all current posts in a joined thread as read.
-    /// </summary>
+    /// <summary>Marks current posts as read.</summary>
     public void MarkAsRead(int userId, int threadId)
     {
+        bool changed = false;
+
         lock (_store.SyncRoot)
         {
             RequireUser(userId);
@@ -62,15 +56,23 @@ public sealed class UnreadService
                 .DefaultIfEmpty(0)
                 .Max();
 
-            _store.LastReadPostIds[(userId, threadId)] = latestPostId;
+            var key = (userId, threadId);
+
+            _store.LastReadPostIds.TryGetValue(
+                key, out int lastReadPostId);
+
+            if (latestPostId > lastReadPostId)
+            {
+                _store.LastReadPostIds[key] = latestPostId;
+                changed = true;
+            }
         }
 
-        _notifier.NotifyChanged();
+        if (changed)
+            _notifier.NotifyChanged();
     }
 
-    /// <summary>
-    /// Returns unread counts for all threads joined by a user.
-    /// </summary>
+    /// <summary>Returns unread counts for joined threads.</summary>
     public Dictionary<int, int> GetUnreadCounts(int userId)
     {
         lock (_store.SyncRoot)

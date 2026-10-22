@@ -1,0 +1,236 @@
+
+@page "/chats/{ChatId:int}"
+@rendermode InteractiveServer
+@implements IDisposable
+
+@using CampusChat.Models
+@using CampusChat.Services
+
+@inject DirectChatService ChatService
+@inject UserService UserService
+@inject UserStateService UserState
+@inject ChangeNotifier Notifier
+
+<PageTitle>Chat Details - CampusChat</PageTitle>
+
+<a href="/chats" class="btn btn-link px-0 mb-3">
+    ← Back to Direct Chats
+</a>
+
+@if (!UserState.IsSignedIn)
+{
+    <div class="alert alert-info">
+        Please <a href="/signin">select a user</a> first.
+    </div>
+}
+else if (chat == null)
+{
+    <div class="alert alert-warning">
+        @errorMessage
+    </div>
+}
+else
+{
+    <h2>@GetChatTitle()</h2>
+
+    @if (IsAuditor)
+    {
+        <div class="alert alert-info">
+            Auditor access: You can read this conversation,
+            but you cannot send messages.
+        </div>
+    }
+    else
+    {
+        <p class="text-muted">
+            Private conversation between two students.
+        </p>
+    }
+
+    @if (!string.IsNullOrEmpty(errorMessage))
+    {
+        <div class="alert alert-danger">@errorMessage</div>
+    }
+
+    <div class="card mt-4 mb-4">
+        <div class="card-body">
+            <h5>Messages</h5>
+
+            @if (messages.Count == 0)
+            {
+                <div class="alert alert-secondary">
+                    No messages yet. Start the conversation!
+                </div>
+            }
+            else
+            {
+                @foreach (var message in messages)
+                {
+                    <div class="border rounded p-3 mb-3"
+                         @key="message.Id">
+
+                        <div class="d-flex justify-content-between">
+                            <strong>
+                                @GetUserName(message.SenderUserId)
+                            </strong>
+
+                            <small class="text-muted">
+                                @message.SentAt.ToLocalTime().ToString("dd MMM yyyy HH:mm")
+                            </small>
+                        </div>
+
+                        <p class="mb-0 mt-2">
+                            @message.Content
+                        </p>
+                    </div>
+                }
+            }
+        </div>
+    </div>
+
+    @if (!IsAuditor)
+    {
+        <div class="card">
+            <div class="card-body">
+                <h5>Send a Message</h5>
+
+                <textarea class="form-control mb-3"
+                          rows="3"
+                          placeholder="Write your message..."
+                          @bind="newMessage"></textarea>
+
+                <button class="btn btn-primary"
+                        @onclick="SendMessage">
+                    Send Message
+                </button>
+            </div>
+        </div>
+    }
+}
+
+@code {
+    [Parameter] public int ChatId { get; set; }
+
+    private DirectChat? chat;
+    private List<DirectMessage> messages = new();
+
+    private string newMessage = "";
+    private string? errorMessage;
+
+    private bool IsAuditor =>
+        UserState.CurrentUserId.HasValue &&
+        UserService.GetUserById(UserState.CurrentUserId.Value)?.IsAuditor == true;
+
+    protected override void OnInitialized()
+    {
+        Notifier.OnChange += HandleChange;
+        UserState.OnChange += HandleChange;
+    }
+
+    protected override void OnParametersSet()
+    {
+        LoadChat();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await UserState.RestoreSessionAsync();
+            LoadChat();
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private void LoadChat()
+    {
+        chat = null;
+        messages.Clear();
+        errorMessage = null;
+
+        if (!UserState.CurrentUserId.HasValue)
+            return;
+
+        try
+        {
+            int userId = UserState.CurrentUserId.Value;
+
+            chat = ChatService.GetChat(userId, ChatId);
+            messages = ChatService.GetMessages(userId, ChatId);
+        }
+        catch (UnauthorizedAccessException)
+        {
+            errorMessage = "You do not have permission to view this conversation.";
+        }
+        catch (KeyNotFoundException)
+        {
+            errorMessage = "Conversation not found.";
+        }
+    }
+
+    private void SendMessage()
+    {
+        if (!UserState.CurrentUserId.HasValue)
+            return;
+
+        try
+        {
+            errorMessage = null;
+
+            ChatService.SendMessage(
+                UserState.CurrentUserId.Value,
+                ChatId,
+                newMessage);
+
+            newMessage = "";
+            LoadChat();
+        }
+        catch (Exception ex) when (
+            ex is ArgumentException ||
+            ex is UnauthorizedAccessException ||
+            ex is KeyNotFoundException)
+        {
+            errorMessage = ex.Message;
+        }
+    }
+
+    private string GetChatTitle()
+    {
+        if (chat == null)
+            return "Direct Chat";
+
+        string first = GetUserName(chat.User1Id);
+        string second = GetUserName(chat.User2Id);
+
+        if (IsAuditor)
+            return $"{first} and {second}";
+
+        int otherUserId =
+            chat.User1Id == UserState.CurrentUserId
+                ? chat.User2Id
+                : chat.User1Id;
+
+        return $"Chat with {GetUserName(otherUserId)}";
+    }
+
+    private string GetUserName(int userId)
+    {
+        return UserService.GetUserById(userId)?.DisplayName
+               ?? "Unknown User";
+    }
+
+    private void HandleChange()
+    {
+        _ = InvokeAsync(() =>
+        {
+            LoadChat();
+            StateHasChanged();
+        });
+    }
+
+    public void Dispose()
+    {
+        Notifier.OnChange -= HandleChange;
+        UserState.OnChange -= HandleChange;
+    }
+}

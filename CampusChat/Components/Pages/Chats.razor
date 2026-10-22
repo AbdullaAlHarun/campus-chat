@@ -1,0 +1,195 @@
+
+@page "/chats"
+@rendermode InteractiveServer
+@implements IDisposable
+
+@using CampusChat.Models
+@using CampusChat.Services
+
+@inject DirectChatService ChatService
+@inject UserService UserService
+@inject UserStateService UserState
+@inject ChangeNotifier Notifier
+@inject NavigationManager Navigation
+
+<PageTitle>Direct Chats - CampusChat</PageTitle>
+
+<h2>Direct Chats</h2>
+<p class="text-muted">
+    Start a private conversation with another student.
+</p>
+
+@if (!UserState.IsSignedIn)
+{
+    <div class="alert alert-info">
+        Please <a href="/signin">select a user</a> first.
+    </div>
+}
+else
+{
+    @if (!string.IsNullOrEmpty(errorMessage))
+    {
+        <div class="alert alert-danger">@errorMessage</div>
+    }
+
+    <div class="card mb-4">
+        <div class="card-body">
+            <h5>Start a Conversation</h5>
+
+            <select class="form-select mb-3" @bind="selectedUserId">
+                <option value="0">Choose a user</option>
+
+                @foreach (var user in availableUsers)
+                {
+                    <option value="@user.Id">
+                        @user.DisplayName
+                    </option>
+                }
+            </select>
+
+            <button class="btn btn-primary"
+                    @onclick="StartChat"
+                    disabled="@(selectedUserId == 0)">
+                Start Chat
+            </button>
+        </div>
+    </div>
+
+    <h4>My Conversations</h4>
+
+    @if (chats.Count == 0)
+    {
+        <div class="alert alert-secondary">
+            No conversations yet. Start a chat above.
+        </div>
+    }
+    else
+    {
+        <div class="row g-3">
+            @foreach (var chat in chats)
+            {
+                <div class="col-md-6" @key="chat.Id">
+                    <div class="card h-100 shadow-sm">
+                        <div class="card-body">
+                            <h5>@GetChatTitle(chat)</h5>
+
+                            <p class="text-muted mb-3">
+                                Started @chat.CreatedAt.ToLocalTime().ToString("dd MMM yyyy")
+                            </p>
+
+                            <a class="btn btn-outline-primary btn-sm"
+                               href="@($"/chats/{chat.Id}")">
+                                Open Chat
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            }
+        </div>
+    }
+}
+
+@code {
+    private List<User> availableUsers = new();
+    private List<DirectChat> chats = new();
+
+    private int selectedUserId;
+    private string? errorMessage;
+
+    protected override void OnInitialized()
+    {
+        Notifier.OnChange += HandleChange;
+        UserState.OnChange += HandleChange;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await UserState.RestoreSessionAsync();
+            LoadData();
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private void LoadData()
+    {
+        availableUsers.Clear();
+        chats.Clear();
+
+        if (!UserState.CurrentUserId.HasValue)
+            return;
+
+        int userId = UserState.CurrentUserId.Value;
+
+        availableUsers = UserService.GetUsers()
+            .Where(u => u.Id != userId && !u.IsAuditor)
+            .ToList();
+
+        chats = ChatService.GetChats(userId);
+    }
+
+    private void StartChat()
+    {
+        if (!UserState.CurrentUserId.HasValue || selectedUserId == 0)
+            return;
+
+        try
+        {
+            errorMessage = null;
+
+            var chat = ChatService.GetOrCreateChat(
+                UserState.CurrentUserId.Value,
+                selectedUserId);
+
+            Navigation.NavigateTo($"/chats/{chat.Id}");
+        }
+        catch (Exception ex) when (
+            ex is ArgumentException ||
+            ex is KeyNotFoundException ||
+            ex is UnauthorizedAccessException)
+        {
+            errorMessage = ex.Message;
+        }
+    }
+
+    private string GetChatTitle(DirectChat chat)
+    {
+        if (UserState.CurrentUserId.HasValue &&
+            chat.User1Id == UserState.CurrentUserId.Value)
+        {
+            return UserService.GetUserById(chat.User2Id)?.DisplayName
+                   ?? "Unknown User";
+        }
+
+        if (UserState.CurrentUserId.HasValue &&
+            chat.User2Id == UserState.CurrentUserId.Value)
+        {
+            return UserService.GetUserById(chat.User1Id)?.DisplayName
+                   ?? "Unknown User";
+        }
+
+        var first = UserService.GetUserById(chat.User1Id)?.DisplayName
+                    ?? "Unknown User";
+
+        var second = UserService.GetUserById(chat.User2Id)?.DisplayName
+                     ?? "Unknown User";
+
+        return $"{first} and {second}";
+    }
+
+    private void HandleChange()
+    {
+        _ = InvokeAsync(() =>
+        {
+            LoadData();
+            StateHasChanged();
+        });
+    }
+
+    public void Dispose()
+    {
+        Notifier.OnChange -= HandleChange;
+        UserState.OnChange -= HandleChange;
+    }
+}
