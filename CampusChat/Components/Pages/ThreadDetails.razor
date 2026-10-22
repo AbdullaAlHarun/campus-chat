@@ -5,6 +5,7 @@
 
 @using CampusChat.Models
 @using CampusChat.Services
+@using CampusChat.Components.Shared
 @using DiscussionThread = CampusChat.Models.Thread
 
 @inject ThreadService ThreadService
@@ -99,42 +100,21 @@ else
         {
             @foreach (var post in posts)
             {
-                <div class="card mb-3" @key="post.Id">
-                    <div class="card-body">
-                        <div class="d-flex justify-content-between">
-                            <strong>
-                                @GetAuthorName(post.AuthorUserId)
-                            </strong>
-                            <small class="text-muted">
-                                @post.CreatedAt.ToLocalTime().ToString("dd MMM yyyy HH:mm")
-                            </small>
+                <div @key="post.Id">
+                    @if (post.ParentPostId.HasValue)
+                    {
+                        <div class="small text-muted mb-1">
+                            Reply to post #@post.ParentPostId
                         </div>
+                    }
 
-                        @if (post.ParentPostId.HasValue)
-                        {
-                            <small class="text-muted">
-                                Reply to post #@post.ParentPostId
-                            </small>
-                        }
-
-                        <p class="mt-2 mb-2">@post.Content</p>
-
-                        @if (IsMember)
-                        {
-                            <button class="btn btn-outline-primary btn-sm me-2"
-                                    @onclick="() => StartReply(post.Id)">
-                                Reply
-                            </button>
-                        }
-
-                        @if (post.AuthorUserId == UserState.CurrentUserId)
-                        {
-                            <button class="btn btn-outline-danger btn-sm"
-                                    @onclick="() => DeletePost(post.Id)">
-                                Delete
-                            </button>
-                        }
-                    </div>
+                    <PostCard Post="post"
+                              AuthorName="@GetAuthorName(post.AuthorUserId)"
+                              AuthorColor="@GetAuthorColor(post.AuthorUserId)"
+                              CanReply="@IsMember"
+                              CanDelete="@(post.AuthorUserId == UserState.CurrentUserId)"
+                              OnReply="StartReply"
+                              OnDelete="DeletePost" />
                 </div>
             }
         }
@@ -349,6 +329,12 @@ else
     {
         return UserService.GetUserById(userId)?.DisplayName
             ?? "Unknown User";
+    }
+
+    private string GetAuthorColor(int userId)
+    {
+        return UserService.GetUserById(userId)?.AvatarColor
+            ?? "#3B82F6";
     }
 
     private void RefreshFromNotification()

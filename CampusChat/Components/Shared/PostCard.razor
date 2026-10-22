@@ -1,0 +1,78 @@
+@using CampusChat.Models
+@namespace CampusChat.Components.Shared
+
+
+<div class="card mb-3">
+    <div class="card-body">
+
+        <div class="d-flex justify-content-between align-items-start mb-2">
+            <div class="d-flex align-items-center gap-2">
+                <div style="@($"width:36px;height:36px;border-radius:50%;background-color:{AuthorColor};")">
+                </div>
+
+                <div>
+                    <a href="@($"/profiles/{Post.AuthorUserId}")"
+                       class="fw-semibold text-decoration-none">
+                        @AuthorName
+                    </a>
+
+                    <div class="small text-muted">
+                        @Post.CreatedAt.ToLocalTime().ToString("dd MMM yyyy HH:mm")
+                    </div>
+                </div>
+            </div>
+
+            @if (CanDelete)
+            {
+                <button class="btn btn-outline-danger btn-sm"
+                        @onclick="DeletePost">
+                    Delete
+                </button>
+            }
+        </div>
+
+        <p class="mb-3" style="white-space:pre-wrap">@Post.Content</p>
+
+        @if (CanReply)
+        {
+            <button class="btn btn-outline-primary btn-sm"
+                    @onclick="ReplyToPost">
+                Reply
+            </button>
+        }
+
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired]
+    public Post Post { get; set; } = default!;
+
+    [Parameter]
+    public string AuthorName { get; set; } = "Unknown User";
+
+    [Parameter]
+    public string AuthorColor { get; set; } = "#3B82F6";
+
+    [Parameter]
+    public bool CanReply { get; set; }
+
+    [Parameter]
+    public bool CanDelete { get; set; }
+
+    [Parameter]
+    public EventCallback<int> OnReply { get; set; }
+
+    [Parameter]
+    public EventCallback<int> OnDelete { get; set; }
+
+    private Task ReplyToPost()
+    {
+        return OnReply.InvokeAsync(Post.Id);
+    }
+
+    private Task DeletePost()
+    {
+        return OnDelete.InvokeAsync(Post.Id);
+    }
+}
