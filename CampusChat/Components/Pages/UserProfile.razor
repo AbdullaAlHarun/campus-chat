@@ -1,0 +1,171 @@
+
+@page "/profiles/{UserId:int}"
+@rendermode InteractiveServer
+@implements IDisposable
+
+@using CampusChat.Models
+@using CampusChat.Services
+@using DiscussionThread = CampusChat.Models.Thread
+
+@inject UserService UserService
+@inject ThreadService ThreadService
+@inject UserStateService UserState
+@inject ChangeNotifier Notifier
+
+<PageTitle>User Profile - CampusChat</PageTitle>
+
+<a href="/threads" class="btn btn-link px-0 mb-3">
+    ← Back to Discussions
+</a>
+
+@if (!UserState.IsSignedIn)
+{
+    <div class="alert alert-info">
+        Please <a href="/signin">select a user</a> first.
+    </div>
+}
+else if (profile == null)
+{
+    <div class="alert alert-warning">
+        User profile not found.
+    </div>
+}
+else
+{
+    <div class="card mb-4">
+        <div class="card-body">
+            <div class="d-flex align-items-center gap-3 mb-4">
+                <div style="@($"width:70px;height:70px;border-radius:50%;background-color:{profile.AvatarColor};")">
+                </div>
+
+                <div>
+                    <h2 class="mb-1">@profile.DisplayName</h2>
+
+                    <span class="text-muted">
+                        @(profile.IsAuditor
+                            ? "Auditor"
+                            : $"Study Year {profile.StudyYear}")
+                    </span>
+                </div>
+            </div>
+
+            <h5>About</h5>
+
+            <p>
+                @(string.IsNullOrWhiteSpace(profile.Bio)
+                    ? "No bio added yet."
+                    : profile.Bio)
+            </p>
+
+            @if (UserState.CurrentUserId == profile.Id)
+            {
+                <a href="/profile" class="btn btn-outline-primary btn-sm">
+                    Edit My Profile
+                </a>
+            }
+        </div>
+    </div>
+
+    <h4>Joined Discussions</h4>
+
+    @if (visibleThreads.Count == 0)
+    {
+        <div class="alert alert-secondary">
+            No visible joined discussions.
+        </div>
+    }
+    else
+    {
+        <div class="row g-3">
+            @foreach (var thread in visibleThreads)
+            {
+                <div class="col-md-6" @key="thread.Id">
+                    <div class="card h-100">
+                        <div class="card-body">
+                            <h5>@thread.Title</h5>
+
+                            <span class="badge @(thread.IsPrivate
+                                ? "bg-warning text-dark"
+                                : "bg-success")">
+                                @(thread.IsPrivate ? "Private" : "Public")
+                            </span>
+
+                            <p class="mt-3">@thread.Description</p>
+
+                            <a class="btn btn-outline-primary btn-sm"
+                               href="@($"/threads/{thread.Id}")">
+                                Open Thread
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            }
+        </div>
+    }
+}
+
+@code {
+    [Parameter] public int UserId { get; set; }
+
+    private User? profile;
+    private List<DiscussionThread> visibleThreads = new();
+
+    protected override void OnInitialized()
+    {
+        Notifier.OnChange += HandleChange;
+        UserState.OnChange += HandleChange;
+    }
+
+    protected override void OnParametersSet()
+    {
+        LoadProfile();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await UserState.RestoreSessionAsync();
+            LoadProfile();
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private void LoadProfile()
+    {
+        profile = null;
+        visibleThreads.Clear();
+
+        if (!UserState.CurrentUserId.HasValue)
+            return;
+
+        profile = UserService.GetUserById(UserId);
+
+        if (profile == null)
+            return;
+
+        var joinedThreads = ThreadService.GetJoinedThreads(UserId);
+
+        visibleThreads = joinedThreads
+            .Where(t =>
+                !t.IsPrivate ||
+                ThreadService.CanReadThread(
+                    UserState.CurrentUserId.Value, t.Id))
+            .ToList();
+    }
+
+    private void HandleChange()
+    {
+        _ = InvokeAsync(() =>
+        {
+            LoadProfile();
+            StateHasChanged();
+        });
+    }
+
+    public void Dispose()
+    {
+        Notifier.OnChange -= HandleChange;
+        UserState.OnChange -= HandleChange;
+    }
+}
