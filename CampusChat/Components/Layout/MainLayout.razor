@@ -1,13 +1,43 @@
 ﻿@inherits LayoutComponentBase
+@implements IDisposable
+
+@using CampusChat.Services
+@using Microsoft.AspNetCore.Components
+
+@inject UserStateService UserState
+@inject UserService UserService
+@inject NavigationManager Navigation
 
 <div class="page">
     <div class="sidebar">
-        <NavMenu/>
+        <NavMenu />
     </div>
 
     <main>
         <div class="top-row px-4">
-            <a href="https://learn.microsoft.com/aspnet/core/" target="_blank">About</a>
+            @if (UserState.IsSignedIn)
+            {
+                <div class="d-flex align-items-center gap-3">
+                    <a href="/profile"
+                       class="text-white text-decoration-none">
+                        <span aria-hidden="true">●</span>
+                        @CurrentUserName
+                    </a>
+
+                    <button type="button"
+                            class="btn btn-sm btn-outline-light"
+                            @onclick="SignOut">
+                        Sign Out
+                    </button>
+                </div>
+            }
+            else
+            {
+                <a href="/signin"
+                   class="text-white text-decoration-none">
+                    Select User
+                </a>
+            }
         </div>
 
         <article class="content px-4">
@@ -21,3 +51,32 @@
     <a href="" class="reload">Reload</a>
     <a class="dismiss">🗙</a>
 </div>
+
+@code {
+    private string CurrentUserName =>
+        UserState.CurrentUserId is int userId
+            ? UserService.GetUserById(userId)?.DisplayName
+              ?? "User"
+            : "User";
+
+    protected override void OnInitialized()
+    {
+        UserState.OnChange += RefreshHeader;
+    }
+
+    private void RefreshHeader()
+    {
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    private async Task SignOut()
+    {
+        await UserState.SignOutAsync();
+        Navigation.NavigateTo("/signin");
+    }
+
+    public void Dispose()
+    {
+        UserState.OnChange -= RefreshHeader;
+    }
+}
