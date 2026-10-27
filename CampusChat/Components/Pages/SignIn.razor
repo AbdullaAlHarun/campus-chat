@@ -6,11 +6,12 @@
 @inject CampusChat.Services.UserStateService UserState
 @inject NavigationManager Navigation
 
-<PageTitle>Sign In - CampusChat</PageTitle>
+<PageTitle>Select User - CampusChat</PageTitle>
 
-<h2>Welcome to CampusChat</h2>
+<h2>Select User / Login</h2>
+
 <p class="text-muted">
-    Choose your profile to continue, or create a new one.
+    Choose an existing user profile to continue to CampusChat.
 </p>
 
 @if (!string.IsNullOrEmpty(errorMessage))
@@ -20,7 +21,7 @@
     </div>
 }
 
-<h4 class="mb-3">Select User</h4>
+<h4 class="mb-3">Existing Users</h4>
 
 <div class="row g-3">
     @foreach (var user in UserService.GetUsers())
@@ -28,11 +29,9 @@
         <div class="col-md-6 col-lg-4" @key="user.Id">
             <div class="card h-100 shadow-sm">
                 <div class="card-body">
+
                     <div class="d-flex align-items-center gap-3">
-                        <div style="width:48px;
-                                    height:48px;
-                                    border-radius:50%;
-                                    background-color:@user.AvatarColor">
+                        <div style="@($"width:48px;height:48px;border-radius:50%;background-color:{user.AvatarColor};")">
                         </div>
 
                         <div>
@@ -51,6 +50,7 @@
                             @onclick="() => SelectUser(user.Id)">
                         Continue as @user.DisplayName
                     </button>
+
                 </div>
             </div>
         </div>
@@ -59,77 +59,13 @@
 
 <hr class="my-4" />
 
-<div class="card">
-    <div class="card-body">
-        <h4>Create a New Profile</h4>
-
-        <p class="text-muted">
-            Enter your details to join CampusChat.
-        </p>
-
-        <div class="mb-3">
-            <label for="new-name" class="form-label">
-                Display name
-            </label>
-
-            <input id="new-name"
-                   class="form-control"
-                   maxlength="80"
-                   placeholder="Enter your name"
-                   @bind="newDisplayName" />
-        </div>
-
-        <div class="mb-3">
-            <label for="new-bio" class="form-label">
-                Short bio
-            </label>
-
-            <textarea id="new-bio"
-                      class="form-control"
-                      maxlength="300"
-                      rows="3"
-                      placeholder="Tell us about yourself"
-                      @bind="newBio"></textarea>
-        </div>
-
-        <div class="row">
-            <div class="col-md-6 mb-3">
-                <label for="new-year" class="form-label">
-                    Study year
-                </label>
-
-                <InputNumber id="new-year"
-                             class="form-control"
-                             @bind-Value="newStudyYear" />
-            </div>
-
-            <div class="col-md-6 mb-3">
-                <label for="new-color" class="form-label">
-                    Avatar colour
-                </label>
-
-                <input id="new-color"
-                       type="color"
-                       class="form-control form-control-color"
-                       @bind="newAvatarColor" />
-            </div>
-        </div>
-
-        <button type="button"
-                class="btn btn-primary"
-                @onclick="CreateNewProfile">
-            Create Profile
-        </button>
-    </div>
-</div>
+<p class="text-muted">
+    Want to create a new account?
+    <a href="/users">Go to User Profiles</a>.
+</p>
 
 @code {
     private string? errorMessage;
-
-    private string newDisplayName = string.Empty;
-    private string newBio = string.Empty;
-    private string newAvatarColor = "#35745F";
-    private int newStudyYear = 1;
 
     private async Task SelectUser(int userId)
     {
@@ -144,33 +80,6 @@
         catch (Exception)
         {
             errorMessage = "Could not sign in. Please try again.";
-        }
-    }
-
-    private async Task CreateNewProfile()
-    {
-        try
-        {
-            errorMessage = null;
-
-            var user = UserService.CreateProfile(
-                newDisplayName,
-                newBio,
-                newAvatarColor,
-                newStudyYear);
-
-            await UserState.SignInAsync(user.Id);
-
-            Navigation.NavigateTo("/profile");
-        }
-        catch (ArgumentException ex)
-        {
-            errorMessage = ex.Message;
-        }
-        catch (Exception)
-        {
-            errorMessage =
-                "Could not create the profile. Please try again.";
         }
     }
 }

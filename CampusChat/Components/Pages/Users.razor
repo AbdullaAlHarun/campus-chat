@@ -1,0 +1,249 @@
+
+@page "/users"
+@rendermode InteractiveServer
+@implements IDisposable
+
+@using CampusChat.Models
+@using CampusChat.Services
+
+@inject UserService UserService
+@inject UserStateService UserState
+@inject ChangeNotifier Notifier
+@inject NavigationManager Navigation
+
+<PageTitle>User Profiles - CampusChat</PageTitle>
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h2>User Profiles</h2>
+        <p class="text-muted mb-0">
+            View CampusChat members and their profiles.
+        </p>
+    </div>
+
+    <button class="btn btn-primary"
+            @onclick="ToggleCreateForm">
+        @(showCreateForm ? "Cancel" : "+ Create New User")
+    </button>
+</div>
+
+@if (!string.IsNullOrEmpty(errorMessage))
+{
+    <div class="alert alert-danger">@errorMessage</div>
+}
+
+@if (!string.IsNullOrEmpty(successMessage))
+{
+    <div class="alert alert-success">@successMessage</div>
+}
+
+@if (showCreateForm)
+{
+    <div class="card mb-4">
+        <div class="card-body">
+            <h4>Create New User</h4>
+
+            <div class="mb-3">
+                <label class="form-label" for="new-name">
+                    Display Name
+                </label>
+                <input id="new-name"
+                       class="form-control"
+                       maxlength="80"
+                       @bind="newDisplayName" />
+            </div>
+
+            <div class="mb-3">
+                <label class="form-label" for="new-bio">
+                    Bio
+                </label>
+                <textarea id="new-bio"
+                          class="form-control"
+                          maxlength="300"
+                          rows="3"
+                          @bind="newBio"></textarea>
+            </div>
+
+            <div class="row">
+                <div class="col-md-6 mb-3">
+                    <label class="form-label" for="new-year">
+                        Study Year
+                    </label>
+                    <InputNumber id="new-year"
+                                 class="form-control"
+                                 @bind-Value="newStudyYear" />
+                </div>
+
+                <div class="col-md-6 mb-3">
+                    <label class="form-label" for="new-color">
+                        Avatar Color
+                    </label>
+                    <input id="new-color"
+                           type="color"
+                           class="form-control form-control-color"
+                           @bind="newAvatarColor" />
+                </div>
+            </div>
+
+            <button class="btn btn-primary"
+                    @onclick="CreateNewUser">
+                Create Profile
+            </button>
+        </div>
+    </div>
+}
+
+@if (!UserState.IsSignedIn)
+{
+    <div class="alert alert-info">
+        Please <a href="/signin">select a user</a>
+        to view profile details.
+    </div>
+}
+
+@if (users.Count == 0)
+{
+    <div class="alert alert-secondary">
+        No user profiles available.
+    </div>
+}
+else
+{
+    <div class="row g-3">
+        @foreach (var user in users)
+        {
+            <div class="col-md-6 col-lg-4" @key="user.Id">
+                <div class="card h-100 shadow-sm">
+                    <div class="card-body d-flex flex-column">
+
+                        <div class="d-flex align-items-center gap-3 mb-3">
+                            <div style="@($"width:55px;height:55px;min-width:55px;border-radius:50%;background-color:{user.AvatarColor};")">
+                            </div>
+
+                            <div>
+                                <h5 class="mb-1">@user.DisplayName</h5>
+                                <small class="text-muted">
+                                    @(user.IsAuditor
+                                        ? "Auditor"
+                                        : $"Study Year {user.StudyYear}")
+                                </small>
+                            </div>
+                        </div>
+
+                        <p class="text-muted flex-grow-1">
+                            @(string.IsNullOrWhiteSpace(user.Bio)
+                                ? "No bio added yet."
+                                : user.Bio)
+                        </p>
+
+                        <a class="btn btn-outline-primary mb-2"
+                           href="@($"/profiles/{user.Id}")">
+                            View Profile
+                        </a>
+
+                        @if (UserState.CurrentUserId == user.Id)
+                        {
+                            <a class="btn btn-primary"
+                               href="/profile">
+                                Edit My Profile
+                            </a>
+                        }
+                    </div>
+                </div>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    private List<User> users = new();
+
+    private bool showCreateForm;
+    private string newDisplayName = "";
+    private string newBio = "";
+    private string newAvatarColor = "#35745F";
+    private int newStudyYear = 1;
+
+    private string? errorMessage;
+    private string? successMessage;
+
+    protected override void OnInitialized()
+    {
+        Notifier.OnChange += HandleChange;
+        UserState.OnChange += HandleChange;
+        LoadUsers();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await UserState.RestoreSessionAsync();
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private void LoadUsers()
+    {
+        users = UserService.GetUsers();
+    }
+
+    private void ToggleCreateForm()
+    {
+        showCreateForm = !showCreateForm;
+        errorMessage = null;
+        successMessage = null;
+    }
+
+    private async Task CreateNewUser()
+    {
+        try
+        {
+            errorMessage = null;
+            successMessage = null;
+
+            var createdUser = UserService.CreateProfile(
+                newDisplayName,
+                newBio,
+                newAvatarColor,
+                newStudyYear);
+
+            showCreateForm = false;
+            newDisplayName = "";
+            newBio = "";
+            newAvatarColor = "#35745F";
+            newStudyYear = 1;
+
+            LoadUsers();
+
+            successMessage =
+                $"Profile for {createdUser.DisplayName} created successfully.";
+
+            await Task.CompletedTask;
+        }
+        catch (ArgumentException ex)
+        {
+            errorMessage = ex.Message;
+        }
+        catch (Exception)
+        {
+            errorMessage =
+                "Could not create the profile. Please try again.";
+        }
+    }
+
+    private void HandleChange()
+    {
+        _ = InvokeAsync(() =>
+        {
+            LoadUsers();
+            StateHasChanged();
+        });
+    }
+
+    public void Dispose()
+    {
+        Notifier.OnChange -= HandleChange;
+        UserState.OnChange -= HandleChange;
+    }
+}
